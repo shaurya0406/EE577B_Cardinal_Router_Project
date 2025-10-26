@@ -1,6 +1,6 @@
-// tb_vc_phase.v
+// vc_phase_tb.v
 `timescale 1ns/1ps
-module tb_vc_phase;
+module vc_phase_tb;
   reg clk, reset;
   wire polarity;
 
