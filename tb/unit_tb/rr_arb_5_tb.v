@@ -1,4 +1,3 @@
-// tb_rr_arb_5.v
 `timescale 1ns/1ps
 module tb_rr_arb_5;
   reg clk, reset;
@@ -16,6 +15,10 @@ module tb_rr_arb_5;
 
   // 100 MHz clock
   initial begin clk = 1'b0; forever #5 clk = ~clk; end
+  initial begin
+    $dumpfile("rr_arb_5_tb.vcd");
+    $dumpvars(0, tb_rr_arb_5);
+  end
 
   integer errors;
   integer i;
@@ -25,30 +28,43 @@ module tb_rr_arb_5;
     req = 5'b00000;
     outbuf_full = 1'b0;
 
+    // Reset
     reset = 1'b1;
     repeat(2) @(posedge clk);
     reset = 1'b0;
 
-    // 1) No requests -> no grants
+    // ------------------------------------------------------------------
+    // (A) No requests -> no grants (sample on posedge)
+    // ------------------------------------------------------------------
     @(posedge clk);
+    #2
     if (gnt !== 5'b00000) begin
       $display("ERR: grant with no requests");
       errors = errors + 1;
     end
 
-    // 2) Single requester (E)
+    // ------------------------------------------------------------------
+    // (B) Single requester (E). Drive on negedge, sample two posedges later.
+    // Registered gnt requires a clean posedge with req stable beforehand.
+    // ------------------------------------------------------------------
+    @(negedge clk);
     req = 5'b00100; // E only
-    @(posedge clk);
+    @(posedge clk); // evaluate gnt for this edge
+    @(posedge clk); // allow one full registered update window
+    #2
     if (gnt !== 5'b00100) begin
       $display("ERR: single requester E not granted");
       errors = errors + 1;
     end
 
-    // 3) All requesters high, watch rotation
+    // ------------------------------------------------------------------
+    // (C) All requesters high, watch rotation (just print 5 cycles)
+    // ------------------------------------------------------------------
+    @(negedge clk);
     req = 5'b11111;
-    // We expect 5 consecutive grants, each different (rotating)
     for (i=0; i<5; i=i+1) begin
       @(posedge clk);
+      #2
       $display("t=%0t gnt=%b", $time, gnt);
       if (gnt == 5'b00000) begin
         $display("ERR: no grant under full requests");
@@ -56,17 +72,27 @@ module tb_rr_arb_5;
       end
     end
 
-    // 4) Block by outbuf_full
+    // ------------------------------------------------------------------
+    // (D) Block by outbuf_full. Assert on negedge, then sample next posedge.
+    // ------------------------------------------------------------------
+    @(negedge clk);
     outbuf_full = 1'b1;
     @(posedge clk);
+    #2
     if (gnt !== 5'b00000) begin
       $display("ERR: grant while outbuf_full=1");
       errors = errors + 1;
     end
-    outbuf_full = 1'b0;
 
-    // 5) Resume: should continue rotating
-    @(posedge clk);
+    // ------------------------------------------------------------------
+    // (E) Unblock; give one extra posedge for registered grant to reappear.
+    // Keep reqs asserted == 11111.
+    // ------------------------------------------------------------------
+    @(negedge clk);
+    outbuf_full = 1'b0;
+    @(posedge clk); // first edge after unblock
+    @(posedge clk); // allow registered gnt to update
+    #2
     if (gnt == 5'b00000) begin
       $display("ERR: no grant after unblocking");
       errors = errors + 1;
