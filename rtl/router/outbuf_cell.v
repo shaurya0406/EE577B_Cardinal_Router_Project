@@ -9,14 +9,14 @@ module outbuf_cell (
   // Link to neighbor
   output wire        so,
   input  wire        ro,
-  output wire [63:0] do,
+  output wire [63:0] dout,
   input  wire        phase_external,  // external phase for this VC
   // State
   output reg         full,
   output reg  [63:0] q
 );
   assign so = phase_external & full & ro;
-  assign do = (phase_external & full) ? q : 64'b0;
+  assign dout = (phase_external & full) ? q : 64'b0;
 
   always @(posedge clk) begin
     if (reset) begin
