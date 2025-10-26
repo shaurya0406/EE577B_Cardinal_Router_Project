@@ -1,4 +1,4 @@
-// // tb_cardinal_router_mesh_xy_min.v — Simple bring-up TB with VCD + event trace
+// // tb_cardinal_router_mesh_xy_min.v — 
 // `timescale 1ns/1ps
 
 // module tb_cardinal_router_mesh_xy_min;
