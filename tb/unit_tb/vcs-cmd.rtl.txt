@@ -1,0 +1,27 @@
+-sverilog +v2k +vc -notice -V
++vcs+lic+wait +vcs+loopreport
++libext+.v +libext+.sv
++noportcoerce
+-o simv
+-Mdir=csrc
+-metadump
+-l vcs.log
+-debug_access+pp+dmptf
+-debug_region+cell+encrypt
+-kdb
+-diag timescale
+-diag env
+-timescale=1ns/1ps
+-xprop=xmerge
+-error=CIRNU
++lint=all,noVCDE,noIWU,noOUDPE
++lint=NS:5
++lint=TFIPC:5
++lint=TFIPC-L:5
++lint=VNGS:5
++lint=ONGS:5
++lint=UI:5
+-rad
++notimingcheck +nospecify
+-f fileset/rtl_common.f
+-f fileset/tb_single.f

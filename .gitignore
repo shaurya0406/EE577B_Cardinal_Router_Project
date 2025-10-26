@@ -1,0 +1,124 @@
+# ==============================================================
+# EE577B Cardinal Router Project - .gitignore
+# ==============================================================
+
+# ---- OS / Editor junk ----
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+__pycache__/
+
+# ---- Build and output directories ----
+build/
+csrc/
+simv*
+vcs.log
+verdi*
+verdiLog
+*.vpd
+*.fsdb
+*.trn
+*.vdb
+*.svdb
+*.dbg
+*.log
+*.key
+*.dump
+*.daidir/
+*.syn/
+*.chk/
+*.mr/
+*.sdc
+*.pvl
+
+# ---- Simulation artifacts ----
+ucli.key
+ucli.history
+novas.*
+*.tcl.history
+waves.shm/
+waves.wlf
+work/
+transcript
+vsim.wlf
+
+# ---- Synopsys Design Compiler / PrimeTime ----
+*.mr
+*.ddc
+*.sdf
+*.db
+*.svf
+*.rep
+*.rpt
+*.chk
+*.syn
+*.pvl
+*.psm
+dc.setup
+dc_work/
+mapped/
+premapped/
+*.mapped.v
+*.netlist.v
+*.chkdesign.rpt.txt
+
+# ---- Temporary / generated Verilog ----
+design.v
+merged.v
+*.tmp.v
+*_postsyn.v
+*_postsim.v
+*_postmap.v
+
+# ---- Testbench and waveform dumps ----
+dump.vcd
+dump.fst
+*.vcd
+*.fst
+*.saif
+*.wcfg
+*.ucdb
+
+# ---- Tarballs, archives, PDFs ----
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.pdf
+
+# ---- Python / Automation ----
+*.pyc
+*.pyo
+*.pkl
+logs/
+results/
+__pycache__/
+.venv/
+env/
+venv/
+
+# ---- Documentation builds ----
+docs/_build/
+*.aux
+*.toc
+*.out
+*.lof
+*.lot
+*.log
+*.bbl
+*.blg
+*.synctex.gz
+
+# ---- Git submodules ----
+EE577B_Cardinal_Router_Project/.git/
+EE577B_Cardinal_Router_Project/.gitignore
+
+# ---- Custom local configs ----
+local.mk
+Makefile.local
+config.mk
+run.sh
