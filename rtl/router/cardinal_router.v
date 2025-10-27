@@ -225,45 +225,35 @@
 
 module cardinal_router
 #(
-  parameter ROWS    = 4,           // number of rows (Y dimension)
-  parameter COLS    = 4,           // number of columns (X dimension)
-  parameter DATA_W  = 64           // packet width
+  parameter ROWS    = 4,
+  parameter COLS    = 4,
+  parameter DATA_W  = 64
 )
 (
   input  wire                         clk,
   input  wire                         reset,
 
-  //==============================
-  // NIC → Router (Ingress)
-  //==============================
+  // NIC → Router
   input  wire [ROWS*COLS-1:0]         pe_si,
   input  wire [ROWS*COLS-1:0]         pe_ro,
   input  wire [ROWS*COLS*DATA_W-1:0]  pe_di,
 
-  //==============================
-  // Router → NIC (Egress)
-  //==============================
+  // Router → NIC
   output wire [ROWS*COLS-1:0]         pe_ri,
   output wire [ROWS*COLS-1:0]         pe_so,
   output wire [ROWS*COLS*DATA_W-1:0]  pe_do,
   output wire [ROWS*COLS-1:0]         pe_polarity
 );
 
-  // -------------------------------------------------------------------
-  // Internal interconnect wires between routers
-  // Each direction has ROWS×COLS signals, connected between neighbors.
-  // -------------------------------------------------------------------
-  wire [ROWS*COLS-1:0] n_si, s_si, e_si, w_si;
-  wire [ROWS*COLS-1:0] n_so, s_so, e_so, w_so;
-  wire [ROWS*COLS-1:0] n_ri, s_ri, e_ri, w_ri;
-  wire [ROWS*COLS-1:0] n_ro, s_ro, e_ro, w_ro;
-  wire [ROWS*COLS*DATA_W-1:0] n_di, s_di, e_di, w_di;
-  wire [ROWS*COLS*DATA_W-1:0] n_do, s_do, e_do, w_do;
+  // Interconnect arrays (per-direction)
+  wire [ROWS*COLS-1:0]         n_si, s_si, e_si, w_si;   // (optional scope)
+  wire [ROWS*COLS-1:0]         n_so, s_so, e_so, w_so;
+  wire [ROWS*COLS-1:0]         n_ri, s_ri, e_ri, w_ri;
+  wire [ROWS*COLS-1:0]         n_ro, s_ro, e_ro, w_ro;   // MIRRORS of *ro_in
+  wire [ROWS*COLS*DATA_W-1:0]  n_di, s_di, e_di, w_di;   // (optional scope)
+  wire [ROWS*COLS*DATA_W-1:0]  n_do, s_do, e_do, w_do;
 
-  // -------------------------------------------------------------------
-  // Function to compute linear index (for readability only)
-  // idx = y * COLS + x
-  // -------------------------------------------------------------------
+  // Linear index helper
   function integer idx;
     input integer x, y;
     begin
@@ -271,92 +261,101 @@ module cardinal_router
     end
   endfunction
 
-  // -------------------------------------------------------------------
-  // Instantiate mesh nodes and connect neighbors
-  // -------------------------------------------------------------------
   genvar x, y;
   generate
-    for (y = 0; y < ROWS; y = y + 1) begin : row_gen
-      for (x = 0; x < COLS; x = x + 1) begin : col_gen
-
-        localparam integer I = (y * COLS) + x;
+    for (y = 0; y < ROWS; y = y + 1) begin : g_row
+      for (x = 0; x < COLS; x = x + 1) begin : g_col
 
         // -----------------------------
         // Neighbor connections (tie-offs at edges)
         // -----------------------------
-        // NORTH neighbor
-        wire        n_si_in  = (y == 0) ? 1'b0                   : s_so[idx(x, y-1)];
-        wire [DATA_W-1:0] n_di_in  = (y == 0) ? {DATA_W{1'b0}}   : s_do[idx(x, y-1)*DATA_W +: DATA_W];
-        wire        n_ro_in  = (y == 0) ? 1'b0                   : s_ri[idx(x, y-1)];
-        wire        n_ri_out;  // to be connected back below
+        // NORTH neighbor (this node's N input is neighbor's S output)
+        wire              n_si_in  = (y == 0)        ? 1'b0 : s_so[idx(x, y-1)];
+        wire [DATA_W-1:0] n_di_in  = (y == 0)        ? {DATA_W{1'b0}} : s_do[idx(x, y-1)*DATA_W +: DATA_W];
+        wire              n_ro_in  = (y == 0)        ? 1'b0 : s_ri[idx(x, y-1)];
+        wire              n_ri_out;  // from this node to neighbor
 
-        // SOUTH neighbor
-        wire        s_si_in  = (y == ROWS-1) ? 1'b0              : n_so[idx(x, y+1)];
-        wire [DATA_W-1:0] s_di_in  = (y == ROWS-1) ? {DATA_W{1'b0}} : n_do[idx(x, y+1)*DATA_W +: DATA_W];
-        wire        s_ro_in  = (y == ROWS-1) ? 1'b0              : n_ri[idx(x, y+1)];
-        wire        s_ri_out;
+        // SOUTH neighbor (this node's S input is neighbor's N output)
+        wire              s_si_in  = (y == ROWS-1)   ? 1'b0 : n_so[idx(x, y+1)];
+        wire [DATA_W-1:0] s_di_in  = (y == ROWS-1)   ? {DATA_W{1'b0}} : n_do[idx(x, y+1)*DATA_W +: DATA_W];
+        wire              s_ro_in  = (y == ROWS-1)   ? 1'b0 : n_ri[idx(x, y+1)];
+        wire              s_ri_out;
 
-        // WEST neighbor
-        wire        w_si_in  = (x == 0) ? 1'b0                   : e_so[idx(x-1, y)];
-        wire [DATA_W-1:0] w_di_in  = (x == 0) ? {DATA_W{1'b0}}   : e_do[idx(x-1, y)*DATA_W +: DATA_W];
-        wire        w_ro_in  = (x == 0) ? 1'b0                   : e_ri[idx(x-1, y)];
-        wire        w_ri_out;
+        // WEST neighbor (this node's W input is neighbor's E output)
+        wire              w_si_in  = (x == 0)        ? 1'b0 : e_so[idx(x-1, y)];
+        wire [DATA_W-1:0] w_di_in  = (x == 0)        ? {DATA_W{1'b0}} : e_do[idx(x-1, y)*DATA_W +: DATA_W];
+        wire              w_ro_in  = (x == 0)        ? 1'b0 : e_ri[idx(x-1, y)];
+        wire              w_ri_out;
 
-        // EAST neighbor
-        wire        e_si_in  = (x == COLS-1) ? 1'b0              : w_so[idx(x+1, y)];
-        wire [DATA_W-1:0] e_di_in  = (x == COLS-1) ? {DATA_W{1'b0}} : w_do[idx(x+1, y)*DATA_W +: DATA_W];
-        wire        e_ro_in  = (x == COLS-1) ? 1'b0              : w_ri[idx(x+1, y)];
-        wire        e_ri_out;
+        // EAST neighbor (this node's E input is neighbor's W output)
+        wire              e_si_in  = (x == COLS-1)   ? 1'b0 : w_so[idx(x+1, y)];
+        wire [DATA_W-1:0] e_di_in  = (x == COLS-1)   ? {DATA_W{1'b0}} : w_do[idx(x+1, y)*DATA_W +: DATA_W];
+        wire              e_ro_in  = (x == COLS-1)   ? 1'b0 : w_ri[idx(x+1, y)];
+        wire              e_ri_out;
+
+        // Mirror *ro_in to arrays for waveform visibility (optional)
+        assign n_ro[idx(x,y)] = n_ro_in;
+        assign s_ro[idx(x,y)] = s_ro_in;
+        assign w_ro[idx(x,y)] = w_ro_in;
+        assign e_ro[idx(x,y)] = e_ro_in;
+
+        // Optional: mirror si/di for easy scoping (not required to function)
+        assign n_si[idx(x,y)]                 = n_si_in;
+        assign s_si[idx(x,y)]                 = s_si_in;
+        assign w_si[idx(x,y)]                 = w_si_in;
+        assign e_si[idx(x,y)]                 = e_si_in;
+        assign n_di[idx(x,y)*DATA_W +: DATA_W]= n_di_in;
+        assign s_di[idx(x,y)*DATA_W +: DATA_W]= s_di_in;
+        assign w_di[idx(x,y)*DATA_W +: DATA_W]= w_di_in;
+        assign e_di[idx(x,y)*DATA_W +: DATA_W]= e_di_in;
 
         // -----------------------------
-        // PE interface slice
+        // PE slice
         // -----------------------------
-        wire        pe_si_in  = pe_si[I];
-        wire        pe_ro_in  = pe_ro[I];
-        wire [DATA_W-1:0] pe_di_in  = pe_di[I*DATA_W +: DATA_W];
-        wire        pe_ri_out;
-        wire        pe_so_out;
+        wire              pe_si_in   = pe_si[idx(x,y)];
+        wire              pe_ro_in   = pe_ro[idx(x,y)];
+        wire [DATA_W-1:0] pe_di_in   = pe_di[idx(x,y)*DATA_W +: DATA_W];
+        wire              pe_ri_out, pe_so_out, pe_pol_out;
         wire [DATA_W-1:0] pe_do_out;
-        wire        pe_pol_out;
 
         // -----------------------------
         // Router Node Instance
         // -----------------------------
         cardinal_router_mesh_xy u_node (
-          .clk       (clk),
-          .reset     (reset),
+          .clk   (clk),
+          .reset (reset),
 
           // North link
           .n_si (n_si_in),
           .n_di (n_di_in),
-          .n_ri (n_ri_out),
-          .n_so (n_so[I]),
-          .n_do (n_do[I*DATA_W +: DATA_W]),
-          .n_ro (n_ro[I]),
+          .n_ri (n_ri_out),                 // OUTPUT: ready-to-accept to North neighbor
+          .n_so (n_so[idx(x,y)]),           // OUTPUT: send out to North neighbor
+          .n_do (n_do[idx(x,y)*DATA_W +: DATA_W]),
+          .n_ro (n_ro_in),                  // INPUT : ready-from North neighbor  (FIXED)
 
           // South link
           .s_si (s_si_in),
           .s_di (s_di_in),
-          .s_ri (s_ri_out),
-          .s_so (s_so[I]),
-          .s_do (s_do[I*DATA_W +: DATA_W]),
-          .s_ro (s_ro[I]),
+          .s_ri (s_ri_out),                 // OUTPUT
+          .s_so (s_so[idx(x,y)]),           // OUTPUT
+          .s_do (s_do[idx(x,y)*DATA_W +: DATA_W]),
+          .s_ro (s_ro_in),                  // INPUT  (FIXED)
 
           // East link
           .e_si (e_si_in),
           .e_di (e_di_in),
-          .e_ri (e_ri_out),
-          .e_so (e_so[I]),
-          .e_do (e_do[I*DATA_W +: DATA_W]),
-          .e_ro (e_ro[I]),
+          .e_ri (e_ri_out),                 // OUTPUT
+          .e_so (e_so[idx(x,y)]),           // OUTPUT
+          .e_do (e_do[idx(x,y)*DATA_W +: DATA_W]),
+          .e_ro (e_ro_in),                  // INPUT  (FIXED)
 
           // West link
           .w_si (w_si_in),
           .w_di (w_di_in),
-          .w_ri (w_ri_out),
-          .w_so (w_so[I]),
-          .w_do (w_do[I*DATA_W +: DATA_W]),
-          .w_ro (w_ro[I]),
+          .w_ri (w_ri_out),                 // OUTPUT
+          .w_so (w_so[idx(x,y)]),           // OUTPUT
+          .w_do (w_do[idx(x,y)*DATA_W +: DATA_W]),
+          .w_ro (w_ro_in),                  // INPUT  (FIXED)
 
           // PE link
           .pe_si (pe_si_in),
@@ -368,21 +367,17 @@ module cardinal_router
           .polarity (pe_pol_out)
         );
 
-        // -----------------------------
-        // Backward connections (readies)
-        // -----------------------------
-        assign n_ri[I] = n_ri_out;
-        assign s_ri[I] = s_ri_out;
-        assign e_ri[I] = e_ri_out;
-        assign w_ri[I] = w_ri_out;
+        // Backward connections (node outputs to arrays)
+        assign n_ri[idx(x,y)] = n_ri_out;
+        assign s_ri[idx(x,y)] = s_ri_out;
+        assign e_ri[idx(x,y)] = e_ri_out;
+        assign w_ri[idx(x,y)] = w_ri_out;
 
-        // -----------------------------
-        // Output mapping to flat buses
-        // -----------------------------
-        assign pe_ri[I]                     = pe_ri_out;
-        assign pe_so[I]                     = pe_so_out;
-        assign pe_do[I*DATA_W +: DATA_W]    = pe_do_out;
-        assign pe_polarity[I]               = pe_pol_out;
+        // Router → NIC mapping
+        assign pe_ri[idx(x,y)]                    = pe_ri_out;
+        assign pe_so[idx(x,y)]                    = pe_so_out;
+        assign pe_do[idx(x,y)*DATA_W +: DATA_W]   = pe_do_out;
+        assign pe_polarity[idx(x,y)]              = pe_pol_out;
 
       end
     end
