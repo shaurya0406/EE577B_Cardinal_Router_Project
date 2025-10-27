@@ -35,7 +35,7 @@ module route_xy_tb;
       $display("ERR: Case3"); errors=errors+1;
     end
 
-    // Case 4: dx=1 and hx!=0 => go West
+    // Case 4: dx=1 and hx!=0 => go West // TODO: 
     dx=1; dy=0; hx=4'b0100; hy=4'b0001; #1;
     if (!(req_w==1 && shift_x==1 && hx_next==4'b0010)) begin
       $display("ERR: Case4"); errors=errors+1;
