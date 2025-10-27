@@ -64,9 +64,9 @@ module cardinal_router_mesh_xy (
     .pe_so(pe_so_v1), .pe_ro(pe_ro), .pe_do(pe_do_v1)
   );
 
-  // External multiplexing by current external VC (opposite of 'phase_internal' of that VC):
-  // On even cycles (polarity=0): external = VC1, so expose VC1.so/do/ri
-  // On odd  cycles (polarity=1): external = VC0, so expose VC0.so/do/ri
+  //* External multiplexing by current external VC (opposite of 'phase_internal' of that VC):
+  //* On even cycles (polarity=0): external = VC1, so expose VC1.so/do/ri
+  //* On odd  cycles (polarity=1): external = VC0, so expose VC0.so/do/ri
   assign n_so = (polarity==1'b0) ? n_so_v1 : n_so_v0;
   assign s_so = (polarity==1'b0) ? s_so_v1 : s_so_v0;
   assign e_so = (polarity==1'b0) ? e_so_v1 : e_so_v0;

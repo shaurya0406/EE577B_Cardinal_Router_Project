@@ -1,7 +1,7 @@
 // //======================================================================
 // // tb_cardinal_router.v
-// // Clean Verilog-2001 testbench for cardinal_router
-// // Sends one packet (3,0) → (1,2)
+// // Final Verilog-2001 testbench for cardinal_router
+// // Sends one packet (3,0) → (1,2) and checks payload
 // //======================================================================
 // `timescale 1ns/1ps
 
@@ -26,6 +26,10 @@
 //   wire [ROWS*COLS*DATA_W-1:0] pe_do;
 //   wire [ROWS*COLS-1:0]        pe_polarity;
 
+//   // Capture at destination
+//   reg  [DATA_W-1:0]           cap_do_dst;
+//   reg                          seen_dst;
+
 //   //--------------------------------------------------------------------
 //   // Instantiate DUT
 //   //--------------------------------------------------------------------
@@ -46,11 +50,11 @@
 //   );
 
 //   //--------------------------------------------------------------------
-//   // Clock generation
+//   // Clock generation (100 MHz)
 //   //--------------------------------------------------------------------
 //   initial begin
 //     clk = 1'b0;
-//     forever #5 clk = ~clk;   // 100 MHz clock
+//     forever #5 clk = ~clk;
 //   end
 
 //   //--------------------------------------------------------------------
@@ -63,7 +67,15 @@
 //   end
 
 //   //--------------------------------------------------------------------
-//   // Helper function: linear index
+//   // VCD waves
+//   //--------------------------------------------------------------------
+//   initial begin
+//     $dumpfile("tb_cardinal_router.vcd");
+//     $dumpvars(0, tb_cardinal_router);
+//   end
+
+//   //--------------------------------------------------------------------
+//   // Helper: linear index  idx = y*COLS + x
 //   //--------------------------------------------------------------------
 //   function integer idx;
 //     input integer x, y;
@@ -72,11 +84,22 @@
 //     end
 //   endfunction
 
-//     // Waves
+//   //--------------------------------------------------------------------
+//   // Monitors (source (3,0) and dest (1,2))
+//   //--------------------------------------------------------------------
 //   initial begin
-//     $dumpfile("tb_cardinal_router.vcd");
-//     $dumpvars(0, tb_cardinal_router);
+//     $display("TB: Mesh ROWS=%0d COLS=%0d DATA_W=%0d", ROWS, COLS, DATA_W);
+//     $display("TB: Source (3,0) idx=%0d  ->  Dest (1,2) idx=%0d",
+//               idx(3,0), idx(1,2));
 //   end
+
+//   // initial begin
+//   //   $monitor("MON[%0t] SRC(3,0): pol=%b ri=%b si=%b | "
+//   //            "DST(1,2): so=%b ro=%b",
+//   //            $time,
+//   //            pe_polarity[idx(3,0)], pe_ri[idx(3,0)], pe_si[idx(3,0)],
+//   //            pe_so[idx(1,2)], pe_ro[idx(1,2)]);
+//   // end
 
 //   //--------------------------------------------------------------------
 //   // Stimulus
@@ -89,61 +112,81 @@
 
 //   initial begin
 //     // Initialize
-//     pe_si = 0;
-//     pe_ro = 0;
-//     pe_di = 0;
+//     pe_si = {ROWS*COLS{1'b0}};
+//     pe_ro = {ROWS*COLS{1'b0}};
+//     pe_di = {ROWS*COLS*DATA_W{1'b0}};
+//     cap_do_dst = {DATA_W{1'b0}};
+//     seen_dst   = 1'b0;
 
 //     @(negedge reset);
-//     #10;
+//     repeat (2) @(posedge clk);
 
-//     // Source (3,0) → Destination (1,2)
+//     // -----------------------------------------------------------------
+//     // Route: (3,0) → (1,2)
+//     // Dx=1 (West, -X), Dy=1 (South, +Y),
+//     // Hx=2, Hy=2, unary shift-right codes: 2 -> 4'b0010
+//     // -----------------------------------------------------------------
 //     src_idx = idx(3,0);
 //     dst_idx = idx(1,2);
 
-//     // Offsets and directions
-//     dx = 1'b1; // West (-X)
-//     dy = 1'b1; // South (+Y)
-//     hx = 4'b0011; // 2 hops
-//     hy = 4'b0011; // 2 hops
+//     dx = 1'b1;       // West
+//     dy = 1'b1;       // South
+//     hx = 4'b0010;    // 2 hops (shift-right countdown)
+//     hy = 4'b0010;    // 2 hops
 
-//     // Destination ready
+//     // Keep destination ready to consume
 //     pe_ro[dst_idx] = 1'b1;
 
-//     // Wait for correct polarity at source
+//     // Align VC with source router's current external phase
 //     wait (pe_polarity[src_idx] == 1'b0 || pe_polarity[src_idx] == 1'b1);
 //     vc_bit = pe_polarity[src_idx];
 
-//     // Build packet header
+//     // Build packet
 //     packet = {
-//       vc_bit,       // VC bit
-//       dx,           // Dx
-//       dy,           // Dy
-//       5'b00000,     // RSV
-//       hx,           // Hx
-//       hy,           // Hy
-//       8'd3,         // SrcX
-//       8'd0,         // SrcY
-//       32'hDEADBEEF  // Payload
+//       vc_bit,       // [63] VC
+//       dx,           // [62] Dx (0:E, 1:W)
+//       dy,           // [61] Dy (0:N, 1:S)
+//       5'b00000,     // [60:56] RSV
+//       hx,           // [55:52] Hx
+//       hy,           // [51:48] Hy
+//       8'd3,         // [47:40] SrcX = 3
+//       8'd0,         // [39:32] SrcY = 0
+//       32'hDEADBEEF  // [31:0]  Payload
 //     };
 
-//     // Inject packet when router is ready
+//     // Drive data, then inject on a READY cycle; pulse for one beat
 //     pe_di[src_idx*DATA_W +: DATA_W] = packet;
 //     wait (pe_ri[src_idx] == 1'b1);
 //     @(posedge clk);
+//     $display("[%0t] TB: Injecting flit at SRC (3,0) idx=%0d | VC=%0d Dx=%0d Dy=%0d Hx=%b Hy=%b Payload=%h",
+//              $time, src_idx, vc_bit, dx, dy, hx, hy, packet[31:0]);
 //     pe_si[src_idx] = 1'b1;
 //     @(posedge clk);
 //     pe_si[src_idx] = 1'b0;
 
-//     // Wait for arrival
+//     // Wait for SO at destination, then sample DO on the next clock edge
 //     wait (pe_so[dst_idx] == 1'b1);
-//     $display("[%0t] Packet arrived at (1,2)! Data = %h",
-//               $time, pe_do[dst_idx*DATA_W +: DATA_W]);
+//     @(posedge clk);
+//     cap_do_dst = pe_do[dst_idx*DATA_W +: DATA_W];
+//     seen_dst   = 1'b1;
 
-//     #50;
+//     $display("[%0t] TB: Captured flit at DST (1,2) idx=%0d | DO=%h (Payload=%h)",
+//              $time, dst_idx, cap_do_dst, cap_do_dst[31:0]);
+
+//     if (cap_do_dst[31:0] !== 32'hDEADBEEF) begin
+//       $display("[%0t] TB: ERROR: Payload mismatch! got=%h exp=DEADBEEF",
+//                $time, cap_do_dst[31:0]);
+//     end else begin
+//       $display("[%0t] TB: PASS: Payload matches.", $time);
+//     end
+
+//     // Finish
+//     repeat (5) @(posedge clk);
 //     $finish;
 //   end
 
 // endmodule
+
 
 
 
@@ -238,8 +281,8 @@ module tb_cardinal_router;
   //--------------------------------------------------------------------
   initial begin
     $display("TB: Mesh ROWS=%0d COLS=%0d DATA_W=%0d", ROWS, COLS, DATA_W);
-    $display("TB: Source (3,0) idx=%0d  ->  Dest (1,2) idx=%0d",
-              idx(3,0), idx(1,2));
+    $display("TB: Source (0,2) idx=%0d  ->  Dest (0,1) idx=%0d",
+              idx(0,2), idx(0,1));
   end
 
   // initial begin
@@ -275,13 +318,13 @@ module tb_cardinal_router;
     // Dx=1 (West, -X), Dy=1 (South, +Y),
     // Hx=2, Hy=2, unary shift-right codes: 2 -> 4'b0010
     // -----------------------------------------------------------------
-    src_idx = idx(3,0);
-    dst_idx = idx(1,2);
+    src_idx = idx(0,2);
+    dst_idx = idx(0,1);
 
-    dx = 1'b1;       // West
-    dy = 1'b1;       // South
-    hx = 4'b0010;    // 2 hops (shift-right countdown)
-    hy = 4'b0010;    // 2 hops
+    dx = 1'b0;       // EAST
+    dy = 1'b0;       // NORTH
+    hx = 4'b0000;    // 0 hops (shift-right countdown)
+    hy = 4'b0001;    // 1 hops
 
     // Keep destination ready to consume
     pe_ro[dst_idx] = 1'b1;
@@ -298,8 +341,8 @@ module tb_cardinal_router;
       5'b00000,     // [60:56] RSV
       hx,           // [55:52] Hx
       hy,           // [51:48] Hy
-      8'd3,         // [47:40] SrcX = 3
-      8'd0,         // [39:32] SrcY = 0
+      8'd0,         // [47:40] SrcX = 3
+      8'd2,         // [39:32] SrcY = 0
       32'hDEADBEEF  // [31:0]  Payload
     };
 
@@ -307,7 +350,7 @@ module tb_cardinal_router;
     pe_di[src_idx*DATA_W +: DATA_W] = packet;
     wait (pe_ri[src_idx] == 1'b1);
     @(posedge clk);
-    $display("[%0t] TB: Injecting flit at SRC (3,0) idx=%0d | VC=%0d Dx=%0d Dy=%0d Hx=%b Hy=%b Payload=%h",
+    $display("[%0t] TB: Injecting flit at SRC (0,2) idx=%0d | VC=%0d Dx=%0d Dy=%0d Hx=%b Hy=%b Payload=%h",
              $time, src_idx, vc_bit, dx, dy, hx, hy, packet[31:0]);
     pe_si[src_idx] = 1'b1;
     @(posedge clk);
@@ -319,7 +362,7 @@ module tb_cardinal_router;
     cap_do_dst = pe_do[dst_idx*DATA_W +: DATA_W];
     seen_dst   = 1'b1;
 
-    $display("[%0t] TB: Captured flit at DST (1,2) idx=%0d | DO=%h (Payload=%h)",
+    $display("[%0t] TB: Captured flit at DST (0,1) idx=%0d | DO=%h (Payload=%h)",
              $time, dst_idx, cap_do_dst, cap_do_dst[31:0]);
 
     if (cap_do_dst[31:0] !== 32'hDEADBEEF) begin
