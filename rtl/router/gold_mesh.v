@@ -2,7 +2,6 @@
 // cardinal_router.v
 //  - Parameterized mesh of cardinal_router_mesh_xy nodes
 //  - Strict XY routing (Dx=0:E, Dx=1:W, Dy=0:N, Dy=1:S)
-//  - Verilog-2001, NCSIM-friendly (no SV indexed part-selects)
 //----------------------------------------------------------------------
 // Geometry:
 //    X increases → right  (East)
@@ -10,7 +9,7 @@
 // Linear index: IDX = (Y * COLS) + X
 //======================================================================
 
-module cardinal_router
+module gold_mesh
 #(
   parameter ROWS    = 4,
   parameter COLS    = 4,
@@ -144,7 +143,7 @@ module cardinal_router
         // -----------------------------
         // Router Node Instance
         // -----------------------------
-        cardinal_router_mesh_xy u_node (
+        gold_router u_node (
           .clk   (clk),
           .reset (reset),
 

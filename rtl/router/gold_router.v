@@ -1,6 +1,6 @@
-// cardinal_router_mesh_xy.v
+// gold_router.v
 `timescale 1ns/1ps
-module cardinal_router_mesh_xy (
+module gold_router (
   input  wire        clk,
   input  wire        reset,
 
