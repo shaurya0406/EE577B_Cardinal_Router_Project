@@ -25,7 +25,10 @@ module cdmesh_e2e_demo
   wire [2*DATA_W-1:0] l0_cv_di_r;
   wire [3:0] sel_cv0, sel_cv1;
 
-  cd_local_xbar_4x2 #(.DATA_W(DATA_W), .ROUTE_EXTERNAL(1)) u_local0 (
+   assign l0_cv_ro = 2'b11;  // make local’s converged req lanes always-ready
+
+  // cd_local_xbar_4x2 #(.DATA_W(DATA_W), .ROUTE_EXTERNAL(1)) u_local0 (
+  cd_local_stub_4x2 #(.DATA_W(DATA_W), .ROUTE_EXTERNAL(1)) u_local0 (
     .clk(clk), .reset(reset),
     .in_si(l0_in_si), .in_ri(l0_in_ri), .in_di(l0_in_di),
     .cv_so(l0_cv_so), .cv_ro(l0_cv_ro), .cv_do(l0_cv_do),
@@ -42,6 +45,8 @@ module cdmesh_e2e_demo
   assign g_in_si[0] = l0_cv_so[0];
   assign g_in_si[1] = l0_cv_so[1];
   assign g_in_si[7:2] = 6'b0;
+
+  assign g_in_ri = 8'b1111_1111;
 
   assign l0_cv_ro = { g_in_ri[1], g_in_ri[0] };
 
@@ -65,13 +70,15 @@ module cdmesh_e2e_demo
   // assign g_out_ro[1:0] = { l0_cv_ri_r[1], l0_cv_ri_r[0] };
   // assign g_out_ro[7:2] = 6'b111111; // always ready (unused)
 
+// Reply side (Global -> Local0)
   assign l0_cv_si_r = { g_out_so[1], g_out_so[0] };
-  assign g_out_ro   = 8'b1111_1111;  // BREAK LOOP: global reply outs always ready for demo
-  // (l0_cv_ri_r is now unused here; that’s fine)
 
+  // Break ready/ready loop for demo: global reply outs always ready
+  assign g_out_ro = 8'b1111_1111;
 
-  assign l0_cv_di_r[DATA_W*1-1:DATA_W*0] = g_out_do[DATA_W*1-1:DATA_W*0];
-  assign l0_cv_di_r[DATA_W*2-1:DATA_W*1] = g_out_do[DATA_W*2-1:DATA_W*1];
+  // Feed back data words to Local0
+  assign l0_cv_di_r[DATA_W*1-1:DATA_W*0] = g_out_do[DATA_W*1-1:DATA_W*0]; // out0
+  assign l0_cv_di_r[DATA_W*2-1:DATA_W*1] = g_out_do[DATA_W*2-1:DATA_W*1]; // out1
 
   // -------- Adapters
   wire [7:0] dst_o0, dst_o1, dst_o2, dst_o3;
@@ -112,7 +119,7 @@ module cdmesh_e2e_demo
 
   // -------- 4x LLC proxies
   // Always ready
-  assign llc_ro = 4'b1111;
+  // assign llc_ro = 4'b1111;
 
   llc_proxy #(.DATA_W(DATA_W), .BURST(2), .LAT(2)) u_llc0 (
     .clk(clk), .reset(reset),

@@ -1,18 +1,9 @@
-//======================================================================
-// cd_local_xbar_4x2.v — Local converge-diverge crossbar
-// - Request: 4 -> 2 (RR + backpressure)
-// - Reply:   2 -> 4 (external one-hot route OR RR fallback)
-// - No integers, no for-loops
-//======================================================================
 `timescale 1ns/1ps
 `ifndef CD_LOCAL_XBAR_4X2_V
 `define CD_LOCAL_XBAR_4X2_V
 
 module cd_local_xbar_4x2
-#(
-  parameter DATA_W        = 64,
-  parameter ROUTE_EXTERNAL= 1    // 1: use sel_cv* one-hot for reply routing; 0: RR fallback
-)
+#( parameter DATA_W = 64 )
 (
   input  wire                  clk,
   input  wire                  reset,
@@ -22,34 +13,44 @@ module cd_local_xbar_4x2
   output wire  [3:0]           in_ri,
   input  wire  [4*DATA_W-1:0]  in_di,
 
-  output wire  [1:0]           cv_so,     // to global_xbar
+  output wire  [1:0]           cv_so,   // to global
   input  wire  [1:0]           cv_ro,
   output wire  [2*DATA_W-1:0]  cv_do,
 
   // ---------------- Reply path: converged(2) -> routers(4)
-  input  wire  [1:0]           cv_si_r,   // from global_xbar
+  input  wire  [1:0]           cv_si_r, // from global
   output wire  [1:0]           cv_ri_r,
   input  wire  [2*DATA_W-1:0]  cv_di_r,
 
-  output wire  [3:0]           out_so,    // to 4 routers
+  output wire  [3:0]           out_so,  // to routers
   input  wire  [3:0]           out_ro,
-  output wire  [4*DATA_W-1:0]  out_do,
-
-  // -------- OPTIONAL: external one-hot selects for reply destinations
-  // Each is 4'b0001->router0, 4'b0010->router1, 4'b0100->router2, 4'b1000->router3
-  input  wire  [3:0]           sel_cv0,   // route for cv_di_r[0]
-  input  wire  [3:0]           sel_cv1    // route for cv_di_r[1]
+  output wire  [4*DATA_W-1:0]  out_do
 );
 
-  // ====== REQUEST (4->2), unchanged ======
+  // ===== REQUEST (4 -> 2), RR per output, no loops/ints =====
   wire [DATA_W-1:0] in_d0 = in_di[DATA_W*1-1:DATA_W*0];
   wire [DATA_W-1:0] in_d1 = in_di[DATA_W*2-1:DATA_W*1];
   wire [DATA_W-1:0] in_d2 = in_di[DATA_W*3-1:DATA_W*2];
   wire [DATA_W-1:0] in_d3 = in_di[DATA_W*4-1:DATA_W*3];
 
-  wire [3:0] gnt_o0, gnt_o1;
-  rr_arb4 u_rr_o0 (.clk(clk), .reset(reset), .req(in_si),              .en(cv_ro[0]), .gnt(gnt_o0));
-  rr_arb4 u_rr_o1 (.clk(clk), .reset(reset), .req(in_si & ~gnt_o0),    .en(cv_ro[1]), .gnt(gnt_o1));
+  wire [3:0] gnt_o0;
+  wire [3:0] gnt_o1;
+
+  rr_arb4 u_rr_o0 (
+    .clk(clk), .reset(reset),
+    .req(in_si),
+    .en (cv_ro[0]),
+    .gnt(gnt_o0)
+  );
+
+  wire [3:0] in_si_masked_o1 = in_si & ~gnt_o0;
+
+  rr_arb4 u_rr_o1 (
+    .clk(clk), .reset(reset),
+    .req(in_si_masked_o1),
+    .en (cv_ro[1]),
+    .gnt(gnt_o1)
+  );
 
   wire [DATA_W-1:0] mux_o0_d =
       ({DATA_W{gnt_o0[0]}} & in_d0) |
@@ -67,59 +68,85 @@ module cd_local_xbar_4x2
   wire so1 = (|gnt_o1) & cv_ro[1];
 
   assign cv_so = {so1, so0};
-  assign cv_do[DATA_W*1-1:DATA_W*0]     = mux_o0_d;
-  assign cv_do[DATA_W*2-1:DATA_W*1]     = mux_o1_d;
-  assign in_ri = (gnt_o0 & {4{cv_ro[0]}}) | (gnt_o1 & {4{cv_ro[1]}});
+  assign cv_do[DATA_W*1-1:DATA_W*0]   = mux_o0_d;
+  assign cv_do[DATA_W*2-1:DATA_W*1]   = mux_o1_d;
 
-  // ====== REPLY (2->4) ======
-  wire [DATA_W-1:0] cv_d0 = cv_di_r[DATA_W*1-1:DATA_W*0];
-  wire [DATA_W-1:0] cv_d1 = cv_di_r[DATA_W*2-1:DATA_W*1];
+  wire [3:0] in_ri_vec = (gnt_o0 & {4{cv_ro[0]}}) | (gnt_o1 & {4{cv_ro[1]}});
+  assign in_ri = in_ri_vec;
 
-  // ---- Option A: external routing (one-hot)
-  wire [3:0] sel0 = (ROUTE_EXTERNAL!=0) ? sel_cv0 : 4'b0000;
-  wire [3:0] sel1 = (ROUTE_EXTERNAL!=0) ? sel_cv1 : 4'b0000;
+  // ===== REPLY (2 -> 4), decode via hdr_fields, conflict+BP =====
 
-  // ---- Option B: RR fallback (if ROUTE_EXTERNAL==0)
-  wire use_rr = (ROUTE_EXTERNAL==0);
-  // two tiny 4-way RR arbiters that assign cv0 and cv1 to one of 4 outs each
-  wire [3:0] gnt_r0, gnt_r1;
-  rr_arb4 u_rr_r0 (.clk(clk), .reset(reset), .req({4{cv_si_r[0]}}), .en(|out_ro), .gnt(gnt_r0)); // picks one out if cv0 valid
-  rr_arb4 u_rr_r1 (.clk(clk), .reset(reset), .req({4{cv_si_r[1]}}), .en(|out_ro), .gnt(gnt_r1)); // picks one out if cv1 valid
+  // split reply inputs
+  wire [DATA_W-1:0] r0_d = cv_di_r[DATA_W*1-1:DATA_W*0];
+  wire [DATA_W-1:0] r1_d = cv_di_r[DATA_W*2-1:DATA_W*1];
 
-  wire [3:0] route0 = use_rr ? (gnt_r0 & out_ro) : sel0;
-  wire [3:0] route1 = use_rr ? (gnt_r1 & out_ro) : sel1;
+  // decode src fields
+  wire r0_vc, r0_dx, r0_dy; wire [4:0] r0_rsv; wire [3:0] r0_hx, r0_hy; wire [7:0] r0_x, r0_y;
+  wire r1_vc, r1_dx, r1_dy; wire [4:0] r1_rsv; wire [3:0] r1_hx, r1_hy; wire [7:0] r1_x, r1_y;
 
-  // backpressure to cv inputs: ready only if their chosen output is ready
-  // If multiple bits are set (shouldn't happen), any ready bit permits transfer.
-  wire cv0_hit = ( (route0[0] & out_ro[0]) | (route0[1] & out_ro[1]) |
-                   (route0[2] & out_ro[2]) | (route0[3] & out_ro[3]) );
-  wire cv1_hit = ( (route1[0] & out_ro[0]) | (route1[1] & out_ro[1]) |
-                   (route1[2] & out_ro[2]) | (route1[3] & out_ro[3]) );
+  hdr_fields u_hdr_r0 (
+    .pkt (r0_d), .vc(r0_vc), .dx(r0_dx), .dy(r0_dy),
+    .rsv(r0_rsv), .hx(r0_hx), .hy(r0_hy), .srcx(r0_x), .srcy(r0_y)
+  );
+  hdr_fields u_hdr_r1 (
+    .pkt (r1_d), .vc(r1_vc), .dx(r1_dx), .dy(r1_dy),
+    .rsv(r1_rsv), .hx(r1_hx), .hy(r1_hy), .srcx(r1_x), .srcy(r1_y)
+  );
 
-  assign cv_ri_r[0] = cv0_hit;
-  assign cv_ri_r[1] = cv1_hit;
+  // tile index inside quadrant from LSBs of srcx/srcy
+  wire x0 = r0_x[0];
+  wire y0 = r0_y[0];
+  wire x1 = r1_x[0];
+  wire y1 = r1_y[0];
 
-  // output valid if selected & input valid & that output ready
-  wire so_r0_0 = route0[0] & cv_si_r[0] & out_ro[0];
-  wire so_r0_1 = route0[1] & cv_si_r[0] & out_ro[1];
-  wire so_r0_2 = route0[2] & cv_si_r[0] & out_ro[2];
-  wire so_r0_3 = route0[3] & cv_si_r[0] & out_ro[3];
+  // one-hot target per reply input: (x,y) => out{0..3}
+  wire [3:0] tgt0 = (y0==1'b0 && x0==1'b0) ? 4'b0001 :
+                    (y0==1'b0 && x0==1'b1) ? 4'b0010 :
+                    (y0==1'b1 && x0==1'b0) ? 4'b0100 :
+                                              4'b1000;
 
-  wire so_r1_0 = route1[0] & cv_si_r[1] & out_ro[0];
-  wire so_r1_1 = route1[1] & cv_si_r[1] & out_ro[1];
-  wire so_r1_2 = route1[2] & cv_si_r[1] & out_ro[2];
-  wire so_r1_3 = route1[3] & cv_si_r[1] & out_ro[3];
+  wire [3:0] tgt1 = (y1==1'b0 && x1==1'b0) ? 4'b0001 :
+                    (y1==1'b0 && x1==1'b1) ? 4'b0010 :
+                    (y1==1'b1 && x1==1'b0) ? 4'b0100 :
+                                              4'b1000;
 
-  assign out_so[0] = so_r0_0 | so_r1_0;
-  assign out_so[1] = so_r0_1 | so_r1_1;
-  assign out_so[2] = so_r0_2 | so_r1_2;
-  assign out_so[3] = so_r0_3 | so_r1_3;
+  // per-output ready mask
+  wire rdy0 = out_ro[0];
+  wire rdy1 = out_ro[1];
+  wire rdy2 = out_ro[2];
+  wire rdy3 = out_ro[3];
 
-  // Data mux per output (if both cv0 and cv1 select same out, cv1 wins here; external decode should avoid conflicts)
-  assign out_do[DATA_W*1-1:DATA_W*0]   = (so_r1_0 ? cv_d1 : (so_r0_0 ? cv_d0 : {DATA_W{1'b0}}));
-  assign out_do[DATA_W*2-1:DATA_W*1]   = (so_r1_1 ? cv_d1 : (so_r0_1 ? cv_d0 : {DATA_W{1'b0}}));
-  assign out_do[DATA_W*3-1:DATA_W*2]   = (so_r1_2 ? cv_d1 : (so_r0_2 ? cv_d0 : {DATA_W{1'b0}}));
-  assign out_do[DATA_W*4-1:DATA_W*3]   = (so_r1_3 ? cv_d1 : (so_r0_3 ? cv_d0 : {DATA_W{1'b0}}));
+  // fixed priority: input0 over input1
+  wire w0_o0 = cv_si_r[0] & tgt0[0] & rdy0;
+  wire w1_o0 = cv_si_r[1] & tgt1[0] & rdy0 & ~w0_o0;
+
+  wire w0_o1 = cv_si_r[0] & tgt0[1] & rdy1;
+  wire w1_o1 = cv_si_r[1] & tgt1[1] & rdy1 & ~w0_o1;
+
+  wire w0_o2 = cv_si_r[0] & tgt0[2] & rdy2;
+  wire w1_o2 = cv_si_r[1] & tgt1[2] & rdy2 & ~w0_o2;
+
+  wire w0_o3 = cv_si_r[0] & tgt0[3] & rdy3;
+  wire w1_o3 = cv_si_r[1] & tgt1[3] & rdy3 & ~w0_o3;
+
+  // any fire per output
+  wire f_o0 = w0_o0 | w1_o0;
+  wire f_o1 = w0_o1 | w1_o1;
+  wire f_o2 = w0_o2 | w1_o2;
+  wire f_o3 = w0_o3 | w1_o3;
+
+  assign out_so = {f_o3, f_o2, f_o1, f_o0};
+
+  // data muxes (no double-drive)
+  assign out_do[DATA_W*1-1:DATA_W*0]   = w1_o0 ? r1_d : (w0_o0 ? r0_d : {DATA_W{1'b0}});
+  assign out_do[DATA_W*2-1:DATA_W*1]   = w1_o1 ? r1_d : (w0_o1 ? r0_d : {DATA_W{1'b0}});
+  assign out_do[DATA_W*3-1:DATA_W*2]   = w1_o2 ? r1_d : (w0_o2 ? r0_d : {DATA_W{1'b0}});
+  assign out_do[DATA_W*4-1:DATA_W*3]   = w1_o3 ? r1_d : (w0_o3 ? r0_d : {DATA_W{1'b0}});
+
+  // backpressure to reply inputs: ready iff it actually won on some out
+  wire i0_win = w0_o0 | w0_o1 | w0_o2 | w0_o3;
+  wire i1_win = w1_o0 | w1_o1 | w1_o2 | w1_o3;
+  assign cv_ri_r = { i1_win, i0_win };
 
 endmodule
 `endif

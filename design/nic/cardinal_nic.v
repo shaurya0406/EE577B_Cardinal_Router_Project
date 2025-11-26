@@ -12,7 +12,7 @@
 //   addr = 2'b11 → Output buffer status
 //============================================================
 
-module cardinal_nic(
+module nic(
     input         clk,
     input         reset,
 

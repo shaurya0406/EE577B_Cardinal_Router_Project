@@ -9,6 +9,8 @@
 // Linear index: IDX = (Y * COLS) + X
 //======================================================================
 
+// `include "rtl/router/gold_router.v"
+
 module gold_mesh
 #(
   parameter ROWS    = 4,

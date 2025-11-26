@@ -76,7 +76,10 @@ module tb_cdmesh_e2e;
     // LLC proxies emit BURST=2 replies per request; we expect:
     // - replies for r0 on out_so[0] with o0 carrying original header echo
     // - replies for r1 on out_so[1] with o1 carrying original header echo
-    repeat(32) @(posedge clk) begin
+    repeat(96) @(posedge clk) begin
+      $display("[INFO] in_ri=%b llc_ro=%b g_in_si=%b llc_so=%b", in_ri, dut.llc_ro, dut.g_in_si, dut.llc_so);
+      $display("[DBG] cv_so=%b cv_ro=%b", dut.l0_cv_so, dut.l0_cv_ro);
+
       // consume if valid
       if (out_so[0]) c0 <= c0 + 1;
       if (out_so[1]) c1 <= c1 + 1;
